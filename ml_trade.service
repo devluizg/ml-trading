@@ -1,0 +1,21 @@
+[Unit]
+Description=ML Trading Bot — Binance Futures Testnet
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=luiz
+WorkingDirectory=/home/luiz/ml_trade
+ExecStart=/usr/bin/python3 /home/luiz/ml_trade/main.py --loop
+Restart=on-failure
+RestartSec=30
+StandardOutput=append:/home/luiz/ml_trade/logs/bot.log
+StandardError=append:/home/luiz/ml_trade/logs/bot.log
+
+# Reinicia automaticamente se cair, mas desiste após 5 falhas em 5 minutos
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target
