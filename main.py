@@ -334,6 +334,39 @@ def run_bot(config: dict, dry_run: bool = True, alerter: TelegramAlerter = None)
                 alerter.error("place_order", str(e))
 
 
+# ── Health check HTTP (para Coolify / Docker) ─────────────────────────────────
+
+def _start_health_server(port: int = 8080):
+    """
+    Sobe um servidor HTTP mínimo em background para health checks do Coolify.
+    GET /health → 200 OK {"status": "ok"}
+    """
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = b'{"status":"ok"}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass  # silencia logs de acesso HTTP
+
+    def serve():
+        try:
+            HTTPServer(("0.0.0.0", port), Handler).serve_forever()
+        except Exception as e:
+            log.warning(f"Health server error: {e}")
+
+    t = threading.Thread(target=serve, daemon=True)
+    t.start()
+    log.info(f"Health check disponível em http://0.0.0.0:{port}/health")
+
+
 # ── Loop contínuo ─────────────────────────────────────────────────────────────
 
 def run_loop(config: dict, dry_run: bool, alerter: TelegramAlerter):
@@ -382,6 +415,11 @@ def main():
     config = load_config(args.config)
     log_cfg = config.get("logging", {})
     setup_logging(log_cfg.get("file", "logs/bot.log"), log_cfg.get("level", "INFO"))
+
+    # Health check HTTP para Docker/Coolify (porta 8080)
+    if os.environ.get("HEALTHCHECK_PORT") or os.path.exists("/.dockerenv"):
+        port = int(os.environ.get("HEALTHCHECK_PORT", 8080))
+        _start_health_server(port)
 
     dry_run = not args.live
     alert_cfg = config.get("alerts", {})

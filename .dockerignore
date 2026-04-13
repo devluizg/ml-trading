@@ -1,0 +1,21 @@
+# Dados locais — vêm dos volumes do Coolify
+data/history/
+logs/
+models/
+journal/trades.csv
+journal/feature_snapshots.jsonl
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Dev
+.env
+.git/
+graphify-out/
+tune_results.csv
+tests/

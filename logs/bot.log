@@ -378,3 +378,18 @@
 2026-04-13 14:11:21,582 [INFO] __main__ —   ⏳ 223s restantes
 2026-04-13 14:11:51,582 [INFO] __main__ —   ⏳ 193s restantes
 2026-04-13 14:12:21,583 [INFO] __main__ —   ⏳ 163s restantes
+2026-04-13 14:12:51,583 [INFO] __main__ —   ⏳ 133s restantes
+2026-04-13 14:13:21,584 [INFO] __main__ —   ⏳ 103s restantes
+2026-04-13 14:13:51,584 [INFO] __main__ —   ⏳ 73s restantes
+2026-04-13 14:14:21,585 [INFO] __main__ —   ⏳ 43s restantes
+2026-04-13 14:14:51,585 [INFO] __main__ —   ⏳ 13s restantes
+2026-04-13 14:15:05,000 [INFO] __main__ — [#1] Executando análise...
+2026-04-13 14:15:05,000 [INFO] __main__ — Ciclo iniciado — BTC/USDT 15m | dry_run=True
+2026-04-13 14:15:07,602 [INFO] __main__ — Histórico: 70013 candles | 2024-04-13 16:30:00+00:00 → 2026-04-13 17:00:00+00:00
+2026-04-13 14:16:58,018 [INFO] __main__ — Modelo treinado — 69963 amostras → BTC_USDT_15m_20260413_1716.joblib
+2026-04-13 14:16:58,082 [INFO] __main__ — Probabilidades: {-1: 0.17364779953581397, 0: 0.6550216394222749, 1: 0.1713305610419138}
+2026-04-13 14:16:58,082 [INFO] __main__ — Sinal: NEUTRO
+2026-04-13 14:16:58,083 [INFO] __main__ — Sinal NEUTRO — nenhuma ordem enviada
+2026-04-13 14:16:58,090 [INFO] __main__ — ------------------------------------------------------------
+2026-04-13 14:16:58,090 [INFO] __main__ — [#2] Próximo candle: 17:30:05 UTC — 787s
+2026-04-13 14:17:28,090 [INFO] __main__ —   ⏳ 757s restantes
