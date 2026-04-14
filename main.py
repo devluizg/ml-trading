@@ -426,6 +426,8 @@ def run_loop(config: dict, dry_run: bool, alerter: TelegramAlerter):
     if alerter:
         def _status_reply():
             s = _state
+            if s["price"] == 0.0:
+                return f"⏳ <b>{symbol} {timeframe}</b> — inicializando...\nAguarde o primeiro ciclo completar (pode levar 1-3 min na primeira vez)."
             from alerts.telegram import _prob_bar
             bar = _prob_bar(s["p_long"], s["p_short"], s["p_neutro"])
             mode = "DRY RUN" if dry_run else "🔴 LIVE"
