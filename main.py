@@ -169,7 +169,7 @@ def run_bot(config: dict, dry_run: bool = True, alerter: TelegramAlerter = None)
         log.warning(f"Circuit breaker ativo: {reason}")
         if alerter:
             alerter.circuit_breaker(reason)
-        return
+        return {"equity": equity, "price": 0.0, "p_long": 0.0, "p_short": 0.0, "p_neutro": 1.0, "last_signal": f"⛔ Circuit breaker: {reason}"}
 
     # 3. Histórico acumulado em disco
     df = update_history(
@@ -313,9 +313,15 @@ def run_bot(config: dict, dry_run: bool = True, alerter: TelegramAlerter = None)
             n_candles=len(X_train), dry_run=dry_run,
         )
 
+    sig_label_display = f"{'🟢 LONG' if signal == LONG else '🔴 SHORT' if signal == SHORT else '⚪ NEUTRO'} @ {current_price:,.2f}"
+
     if signal == NEUTRO:
         log.info("Sinal NEUTRO — nenhuma ordem enviada")
-        return
+        return {
+            "p_long": proba.get(1, 0), "p_short": proba.get(-1, 0),
+            "p_neutro": proba.get(0, 0), "last_signal": sig_label_display,
+            "equity": equity, "price": current_price,
+        }
 
     # 13. Verifica posição aberta
     current_pos = get_position(exchange, symbol)
@@ -336,7 +342,11 @@ def run_bot(config: dict, dry_run: bool = True, alerter: TelegramAlerter = None)
 
     if amount == 0:
         log.info("Kelly negativo — operação não recomendada")
-        return
+        return {
+            "p_long": proba.get(1, 0), "p_short": proba.get(-1, 0),
+            "p_neutro": proba.get(0, 0), "last_signal": sig_label_display,
+            "equity": equity, "price": current_price,
+        }
 
     # 15. Executa ordem
     side = "buy" if signal == LONG else "sell"
@@ -356,6 +366,12 @@ def run_bot(config: dict, dry_run: bool = True, alerter: TelegramAlerter = None)
             log.error(f"Erro ao enviar ordem: {e}")
             if alerter:
                 alerter.error("place_order", str(e))
+
+    return {
+        "p_long": proba.get(1, 0), "p_short": proba.get(-1, 0),
+        "p_neutro": proba.get(0, 0), "last_signal": sig_label_display,
+        "equity": equity, "price": current_price,
+    }
 
 
 # ── Health check HTTP (para Coolify / Docker) ─────────────────────────────────
@@ -400,6 +416,30 @@ def run_loop(config: dict, dry_run: bool, alerter: TelegramAlerter):
     if alerter:
         alerter.startup(symbol, timeframe, dry_run)
 
+    # Estado compartilhado para o callback /status e resumo horário
+    _state = {
+        "p_long": 0.0, "p_short": 0.0, "p_neutro": 1.0,
+        "last_signal": "—", "equity": 0.0, "price": 0.0,
+        "cycles": 0, "last_status_hour": -1,
+    }
+
+    if alerter:
+        def _status_reply():
+            s = _state
+            from alerts.telegram import _prob_bar
+            bar = _prob_bar(s["p_long"], s["p_short"], s["p_neutro"])
+            mode = "DRY RUN" if dry_run else "🔴 LIVE"
+            return (
+                f"📊 <b>{symbol} {timeframe}</b> [{mode}]\n"
+                f"Preço    : <b>{s['price']:,.2f}</b> USDT\n"
+                f"Saldo    : {s['equity']:.2f} USDT\n"
+                f"Mercado  : {bar}\n"
+                f"  📈 Long {s['p_long']*100:.1f}%  |  📉 Short {s['p_short']*100:.1f}%  |  ⚪ Neutro {s['p_neutro']*100:.1f}%\n"
+                f"Último sinal : {s['last_signal']}\n"
+                f"Ciclos hoje  : {s['cycles']}"
+            )
+        alerter.set_status_callback(_status_reply)
+
     iteration = 0
     while True:
         iteration += 1
@@ -417,7 +457,22 @@ def run_loop(config: dict, dry_run: bool, alerter: TelegramAlerter):
 
         log.info(f"[#{iteration}] Executando análise...")
         try:
-            run_bot(config, dry_run=dry_run, alerter=alerter)
+            result = run_bot(config, dry_run=dry_run, alerter=alerter)
+            if result:
+                _state.update(result)
+            _state["cycles"] += 1
+
+            # Resumo horário automático
+            current_hour = datetime.now(timezone.utc).hour
+            if alerter and current_hour != _state["last_status_hour"]:
+                _state["last_status_hour"] = current_hour
+                alerter.hourly_status(
+                    symbol=symbol, timeframe=timeframe,
+                    equity=_state["equity"], p_long=_state["p_long"],
+                    p_short=_state["p_short"], p_neutro=_state["p_neutro"],
+                    last_signal=_state["last_signal"], n_cycles=_state["cycles"],
+                    dry_run=dry_run, price=_state["price"],
+                )
         except Exception as e:
             log.error(f"Erro na iteração #{iteration}: {e}", exc_info=True)
             if alerter:
