@@ -32,7 +32,18 @@ def get_exchange() -> ccxt.binanceusdm:
             "options": {"defaultType": "future"},
         }
     )
-    exchange.set_sandbox_mode(True)  # ← aponta para testnet automaticamente
+
+    # set_sandbox_mode foi descontinuado — aponta manualmente para testnet
+    testnet = "https://testnet.binancefuture.com"
+    for k in list(exchange.urls.get("api", {})):
+        if "fapi" in k.lower():
+            exchange.urls["api"][k] = exchange.urls["api"][k].replace(
+                "https://fapi.binance.com", testnet
+            )
+
+    # Desativa fetch de moedas que bate na API real (incompatível com chaves testnet)
+    exchange.fetch_currencies = lambda *a, **kw: {}
+
     return exchange
 
 
