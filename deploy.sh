@@ -1,49 +1,83 @@
 #!/bin/bash
-# deploy.sh — configura a VM e instala o ml_trade bot
-# Rode como root ou com sudo na máquina virtual
-# Uso: bash deploy.sh
+# deploy.sh — instala o ml_trade na VM (Hetzner, GCP, etc.)
+# Rode na VM como root: bash deploy.sh
+# Uso: bash deploy.sh [usuario]   (padrão: root)
 
 set -e
 
-PROJECT_DIR="/home/ubuntu/ml_trade"
-SERVICE_USER="ubuntu"
+SERVICE_USER="${1:-root}"
+PROJECT_DIR="/home/${SERVICE_USER}/ml_trade"
+if [ "$SERVICE_USER" = "root" ]; then
+    PROJECT_DIR="/root/ml_trade"
+fi
+VENV="$PROJECT_DIR/venv"
+PYTHON="$VENV/bin/python3"
 
 echo "=== ml_trade deploy ==="
+echo "Usuário : $SERVICE_USER"
+echo "Diretório: $PROJECT_DIR"
+echo ""
 
 # 1. Atualiza sistema e instala Python
 apt-get update -q
-apt-get install -y python3 python3-pip python3-venv git
+apt-get install -y python3 python3-pip python3-venv -q
 
 # 2. Cria ambiente virtual
-python3 -m venv "$PROJECT_DIR/venv"
-source "$PROJECT_DIR/venv/bin/activate"
+python3 -m venv "$VENV"
 
 # 3. Instala dependências
-pip install --upgrade pip -q
-pip install -r "$PROJECT_DIR/requirements.txt" -q
-
+"$VENV/bin/pip" install --upgrade pip -q
+"$VENV/bin/pip" install -r "$PROJECT_DIR/requirements.txt" -q
 echo "Dependências instaladas."
 
-# 4. Baixa histórico de 15m (precisa de internet)
+# 4. Cria diretórios necessários
+mkdir -p "$PROJECT_DIR/logs"
+mkdir -p "$PROJECT_DIR/models"
+mkdir -p "$PROJECT_DIR/data/history"
+mkdir -p "$PROJECT_DIR/journal"
+
+# 5. Baixa histórico BTC 15m e ETH 5m
+echo ""
+echo "Baixando histórico BTC/USDT 15m..."
 cd "$PROJECT_DIR"
-python3 data/download_history.py --timeframe 15m --days 730
+"$PYTHON" data/download_history.py --symbol BTC/USDT --timeframe 15m --days 730
 
-# 5. Otimiza parâmetros
-python3 tune.py --quick --min-sharpe 0.3
+echo ""
+echo "Baixando histórico ETH/USDT 5m..."
+"$PYTHON" data/download_history.py --symbol ETH/USDT --timeframe 5m --days 730
 
-# 6. Instala e ativa o serviço systemd
+# 6. Instala serviço BTC (ml_trade)
+echo ""
+echo "Instalando serviços systemd..."
 cp "$PROJECT_DIR/ml_trade.service" /etc/systemd/system/ml_trade.service
-# Ajusta caminhos para ubuntu
-sed -i "s|User=luiz|User=$SERVICE_USER|g" /etc/systemd/system/ml_trade.service
-sed -i "s|/home/luiz/ml_trade|$PROJECT_DIR|g" /etc/systemd/system/ml_trade.service
+sed -i "s|User=luiz|User=$SERVICE_USER|g"            /etc/systemd/system/ml_trade.service
+sed -i "s|/home/luiz/ml_trade|$PROJECT_DIR|g"        /etc/systemd/system/ml_trade.service
+sed -i "s|/usr/bin/python3|$PYTHON|g"               /etc/systemd/system/ml_trade.service
 
+# 7. Instala serviço ETH (ml_trade_eth)
+cp "$PROJECT_DIR/ml_trade_eth.service" /etc/systemd/system/ml_trade_eth.service
+sed -i "s|User=luiz|User=$SERVICE_USER|g"            /etc/systemd/system/ml_trade_eth.service
+sed -i "s|/home/luiz/ml_trade|$PROJECT_DIR|g"        /etc/systemd/system/ml_trade_eth.service
+sed -i "s|/usr/bin/python3|$PYTHON|g"               /etc/systemd/system/ml_trade_eth.service
+
+# 8. Habilita e inicia os serviços
 systemctl daemon-reload
+
 systemctl enable ml_trade
+systemctl enable ml_trade_eth
+
 systemctl start ml_trade
+sleep 3
+systemctl start ml_trade_eth
 
 echo ""
 echo "=== Deploy concluído ==="
-systemctl status ml_trade --no-pager | head -8
 echo ""
-echo "Logs: journalctl -u ml_trade -f"
-echo "      tail -f $PROJECT_DIR/logs/bot.log"
+systemctl status ml_trade     --no-pager | head -5
+echo ""
+systemctl status ml_trade_eth --no-pager | head -5
+echo ""
+echo "Logs BTC: journalctl -u ml_trade -f"
+echo "Logs ETH: journalctl -u ml_trade_eth -f"
+echo "      ou: tail -f $PROJECT_DIR/logs/bot.log"
+echo "      ou: tail -f $PROJECT_DIR/logs/bot_eth.log"

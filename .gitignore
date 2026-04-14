@@ -1,4 +1,40 @@
+# Credenciais e ambiente
 .env
+*.env
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Ambiente virtual
+venv/
+.venv/
+
+# Dados gerados (baixados ou calculados)
+data/history/
+models/
+
+# Logs
+logs/
+
+# Resultados de tune
+tune_results.csv
+config_eth_tune_results.csv
+*_tune_results.csv
+
+# Journal (dados de live trading — não versionar)
+journal/feature_snapshots.jsonl
+journal/trade_journal.db
+journal/trades.csv
+
+# Estado de runtime
+risk/circuit_state.json
+
+# Graphify
 graphify-out/

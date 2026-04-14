@@ -34,11 +34,16 @@ if _env_file.exists():
 def setup_logging(log_file: str = "logs/bot.log", level: str = "INFO"):
     Path(log_file).parent.mkdir(exist_ok=True)
     fmt = "%(asctime)s [%(levelname)s] %(name)s — %(message)s"
-    # Detecta se está rodando via systemd (evita duplicação no log file)
+    # Sob systemd: stdout já é redirecionado para o arquivo pelo serviço
+    # → usa só StreamHandler para evitar conflito de permissões no FileHandler
     under_systemd = "INVOCATION_ID" in os.environ
-    handlers = [logging.FileHandler(log_file, encoding="utf-8")]
-    if not under_systemd:
-        handlers.append(logging.StreamHandler(sys.stdout))
+    if under_systemd:
+        handlers = [logging.StreamHandler(sys.stdout)]
+    else:
+        handlers = [
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(log_file, encoding="utf-8"),
+        ]
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
         format=fmt,
@@ -85,16 +90,27 @@ def load_config(path: str = "config.yaml") -> dict:
 
 # ── Persistência de modelo ────────────────────────────────────────────────────
 
-def save_model(clf: TradingClassifier, symbol: str, timeframe: str) -> Path:
+def save_model(clf: TradingClassifier, symbol: str, timeframe: str, keep: int = 3) -> Path:
     MODELS_DIR.mkdir(exist_ok=True)
     safe = symbol.replace("/", "_")
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
     path = MODELS_DIR / f"{safe}_{timeframe}_{ts}.joblib"
     joblib.dump(clf, path)
+
+    # Atualiza symlink "latest"
     latest = MODELS_DIR / f"{safe}_{timeframe}_latest.joblib"
     if latest.exists() or latest.is_symlink():
         latest.unlink()
     latest.symlink_to(path.name)
+
+    # Mantém apenas os N modelos mais recentes
+    old_models = sorted(
+        [f for f in MODELS_DIR.glob(f"{safe}_{timeframe}_*.joblib") if not f.is_symlink()],
+        key=lambda f: f.stat().st_mtime,
+    )
+    for old in old_models[:-keep]:
+        old.unlink()
+
     return path
 
 
@@ -163,6 +179,13 @@ def run_bot(config: dict, dry_run: bool = True, alerter: TelegramAlerter = None)
     stats = history_stats(symbol, timeframe)
     log.info(f"Histórico: {stats['candles']} candles | {stats.get('inicio','?')} → {stats.get('fim','?')}")
 
+    # 3b. Aplica train_window antes de tudo — evita computação cara em datasets grandes
+    train_window = mdl_cfg.get("train_window", 0)
+    if train_window and len(df) > train_window:
+        # Mantém margem extra para que labels da barreira tripla sejam completos
+        margin = vertical_bars * 2
+        df = df.iloc[-(train_window + margin):]
+
     # 4. Resolve trades abertos no journal
     resolved = resolve_open_trades(df, vertical_bars=vertical_bars)
     if resolved > 0:
@@ -225,6 +248,7 @@ def run_bot(config: dict, dry_run: bool = True, alerter: TelegramAlerter = None)
     y_train = y.iloc[:-1]
     w_train = weights.iloc[:-1]
     X_current = X.iloc[[-1]]
+
 
     # 9. Treinamento com sample weights
     clf = TradingClassifier(

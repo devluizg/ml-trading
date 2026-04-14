@@ -188,15 +188,15 @@ def print_top(df: pd.DataFrame, n: int = 15) -> None:
     print(top_display.to_string(index=False, float_format="{:.3f}".format))
 
 
-def apply_best(best: dict, min_sharpe: float) -> bool:
+def apply_best(best: dict, min_sharpe: float, config_path: Path = CONFIG_PATH) -> bool:
     if best["sharpe"] < min_sharpe:
         print(f"\nMelhor Sharpe ({best['sharpe']:.3f}) < mínimo ({min_sharpe}).")
-        print("config.yaml NÃO foi alterado.")
+        print(f"{config_path} NÃO foi alterado.")
         print("Dica: o mercado neste período pode ser difícil para o modelo.")
         print("Considere mais dados históricos ou features adicionais (funding rate, OI).")
         return False
 
-    with open(CONFIG_PATH) as f:
+    with open(config_path) as f:
         cfg = yaml.safe_load(f)
 
     cfg["barriers"]["pt"]            = float(best["pt"])
@@ -205,10 +205,10 @@ def apply_best(best: dict, min_sharpe: float) -> bool:
     cfg["model"]["prob_threshold"]   = float(best["prob_threshold"])
     cfg["model"]["prob_gap"]         = float(best["prob_gap"])
 
-    with open(CONFIG_PATH, "w") as f:
+    with open(config_path, "w") as f:
         yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
 
-    print(f"\n✓ config.yaml atualizado com Sharpe={best['sharpe']:.3f}")
+    print(f"\n✓ {config_path} atualizado com Sharpe={best['sharpe']:.3f}")
     print(f"  pt={best['pt']}, sl={best['sl']}, vertical_bars={int(best['vertical_bars'])}")
     print(f"  prob_threshold={best['prob_threshold']}, prob_gap={best['prob_gap']}")
     return True
@@ -220,9 +220,13 @@ def main():
     parser.add_argument("--min-sharpe", type=float, default=0.5)
     parser.add_argument("--symbol",     default=None)
     parser.add_argument("--timeframe",  default=None)
+    parser.add_argument("--config",     default=None, help="Arquivo de config a atualizar (padrão: config.yaml)")
     args = parser.parse_args()
 
-    with open(CONFIG_PATH) as f:
+    config_path = Path(args.config) if args.config else CONFIG_PATH
+    results_path = Path(str(config_path).replace(".yaml", "_tune_results.csv")) if args.config else RESULTS_PATH
+
+    with open(config_path) as f:
         base_config = yaml.safe_load(f)
 
     if args.symbol:    base_config["symbol"]    = args.symbol
@@ -236,6 +240,7 @@ def main():
         return
 
     print(f"Dados: {len(df)} candles | {df.index[0].date()} → {df.index[-1].date()}")
+    print(f"Config: {config_path}")
 
     grid = GRID_QUICK if args.quick else GRID_FULL
     results_df = run_grid(grid, base_config, df)
@@ -244,13 +249,13 @@ def main():
         print("Nenhum resultado. Verifique os dados históricos.")
         return
 
-    results_df.sort_values("sharpe", ascending=False).to_csv(RESULTS_PATH, index=False)
-    print(f"Resultados salvos em {RESULTS_PATH} ({len(results_df)} combinações)")
+    results_df.sort_values("sharpe", ascending=False).to_csv(results_path, index=False)
+    print(f"Resultados salvos em {results_path} ({len(results_df)} combinações)")
 
     print_top(results_df)
 
     best = results_df.sort_values("sharpe", ascending=False).iloc[0].to_dict()
-    apply_best(best, min_sharpe=args.min_sharpe)
+    apply_best(best, min_sharpe=args.min_sharpe, config_path=config_path)
 
 
 if __name__ == "__main__":

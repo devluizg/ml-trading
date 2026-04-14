@@ -1,0 +1,20 @@
+[Unit]
+Description=ML Trading Bot — ETH/USDT 5m
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=luiz
+WorkingDirectory=/home/luiz/ml_trade
+ExecStart=/usr/bin/python3 /home/luiz/ml_trade/main.py --loop --config config_eth.yaml
+Restart=on-failure
+RestartSec=30
+StandardOutput=append:/home/luiz/ml_trade/logs/bot_eth.log
+StandardError=append:/home/luiz/ml_trade/logs/bot_eth.log
+
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target
