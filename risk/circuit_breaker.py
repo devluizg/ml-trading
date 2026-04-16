@@ -70,6 +70,20 @@ class CircuitBreaker:
         Atualiza o estado com o equity atual.
         Deve ser chamado no início de cada ciclo do bot.
         """
+        # equity=0 significa falha na busca do saldo — ignora para não falsear drawdown
+        if equity <= 0:
+            return
+
+        # Se tripped por drawdown 100% mas equity real está ok, era falso positivo — reseta
+        state = self._state
+        if state.get("tripped"):
+            peak = state.get("peak_equity") or equity
+            real_drawdown = (peak - equity) / peak if peak > 0 else 0
+            if real_drawdown < self.max_drawdown_pct:
+                log.warning("Circuit breaker era falso positivo — resetando automaticamente")
+                state["tripped"] = False
+                state["trip_reason"] = None
+
         today = str(date.today())
         state = self._state
 
@@ -98,6 +112,10 @@ class CircuitBreaker:
 
         if state.get("tripped"):
             return False, state.get("trip_reason", "circuit breaker ativo")
+
+        # equity=0 significa falha na busca do saldo — deixa passar sem bloquear
+        if equity <= 0:
+            return True, None
 
         # Verifica drawdown máximo
         peak = state.get("peak_equity")
