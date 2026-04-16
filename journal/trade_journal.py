@@ -24,6 +24,7 @@ import pandas as pd
 
 JOURNAL_PATH   = Path(__file__).parent / "trades.csv"
 SNAPSHOTS_PATH = Path(__file__).parent / "feature_snapshots.jsonl"
+BALANCE_PATH   = Path(__file__).parent / "balance.json"
 
 _COLUMNS = [
     "timestamp",
@@ -41,10 +42,108 @@ _COLUMNS = [
     "outcome",       # WIN / LOSS / EXPIRED / OPEN
     "exit_price",
     "pnl_pct",
+    "pnl_usd",       # P&L em dólares (já descontando taxas)
+    "fee_usd",       # taxas pagas
     "resolved_at",
 ]
 
 log = logging.getLogger(__name__)
+
+
+def get_reference_balance() -> float:
+    """Retorna saldo de referência (padrão $50 se não configurado)."""
+    if BALANCE_PATH.exists():
+        data = json.loads(BALANCE_PATH.read_text())
+        return float(data.get("balance", 50.0))
+    return 50.0
+
+
+def set_reference_balance(amount: float) -> None:
+    """Atualiza saldo de referência (chamado via /saldo no Telegram)."""
+    data = {
+        "balance": amount,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    BALANCE_PATH.write_text(json.dumps(data, indent=2))
+    log.info(f"Saldo de referência atualizado: ${amount:.2f}")
+
+
+def monthly_summary(month: Optional[str] = None) -> str:
+    """
+    Retorna resumo mensal formatado para o Telegram.
+    month: 'YYYY-MM' ou None para o mês atual.
+    """
+    df = load_journal()
+    if df.empty:
+        return "📭 Nenhum trade registrado ainda."
+
+    df = df[df["signal"] != "NEUTRO"].copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    df["month"] = df["timestamp"].dt.to_period("M").astype(str)
+
+    if month is None:
+        month = df["month"].max()
+
+    month_df = df[df["month"] == month]
+    resolved = month_df[month_df["outcome"].isin(["WIN", "LOSS", "EXPIRED"])]
+
+    if resolved.empty:
+        return f"📅 *{month}*\nNenhum trade resolvido neste mês."
+
+    wins     = (resolved["outcome"] == "WIN").sum()
+    losses   = (resolved["outcome"] == "LOSS").sum()
+    expired  = (resolved["outcome"] == "EXPIRED").sum()
+    total    = len(resolved)
+    wr       = wins / total * 100 if total > 0 else 0
+
+    pnl_usd = pd.to_numeric(resolved.get("pnl_usd", pd.Series(dtype=float)), errors="coerce").sum()
+    fee_usd = pd.to_numeric(resolved.get("fee_usd", pd.Series(dtype=float)), errors="coerce").sum()
+
+    ref_bal  = get_reference_balance()
+    pnl_pct_real = pnl_usd / ref_bal * 100 if ref_bal > 0 else 0
+    saldo_final  = ref_bal + pnl_usd
+
+    emoji = "🟢" if pnl_usd >= 0 else "🔴"
+
+    lines = [
+        f"📅 <b>{month}</b>  {emoji}",
+        f"Trades   : {total}  ({wins}W / {losses}L / {expired}exp)",
+        f"Win Rate : {wr:.1f}%",
+        f"P&amp;L      : <b>{pnl_usd:+.2f} USD</b>  ({pnl_pct_real:+.1f}%)",
+        f"Taxas    : -{fee_usd:.2f} USD",
+        f"Saldo ref: ${ref_bal:.2f} → ${saldo_final:.2f}",
+    ]
+    return "\n".join(lines)
+
+
+def all_months_summary() -> str:
+    """Retorna P&L de todos os meses registrados."""
+    df = load_journal()
+    if df.empty:
+        return "📭 Nenhum trade registrado ainda."
+
+    df = df[df["signal"] != "NEUTRO"].copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    df["month"] = df["timestamp"].dt.to_period("M").astype(str)
+    resolved = df[df["outcome"].isin(["WIN", "LOSS", "EXPIRED"])]
+
+    if resolved.empty:
+        return "📭 Nenhum trade resolvido ainda."
+
+    lines = ["📊 <b>Resultado por mês</b>"]
+    ref_bal = get_reference_balance()
+
+    for month, grp in resolved.groupby("month"):
+        wins   = (grp["outcome"] == "WIN").sum()
+        losses = (grp["outcome"] == "LOSS").sum()
+        total  = len(grp)
+        wr     = wins / total * 100 if total > 0 else 0
+        pnl    = pd.to_numeric(grp.get("pnl_usd", pd.Series(dtype=float)), errors="coerce").sum()
+        pct    = pnl / ref_bal * 100 if ref_bal > 0 else 0
+        emoji  = "🟢" if pnl >= 0 else "🔴"
+        lines.append(f"{emoji} {month}: {pnl:+.2f} USD ({pct:+.1f}%)  {wins}W/{losses}L  WR {wr:.0f}%")
+
+    return "\n".join(lines)
 
 
 def log_signal(
@@ -83,6 +182,8 @@ def log_signal(
         "outcome": "OPEN" if signal != 0 else "NEUTRO",
         "exit_price": "",
         "pnl_pct": "",
+        "pnl_usd": "",
+        "fee_usd": "",
         "resolved_at": "",
     }
     write_header = not JOURNAL_PATH.exists()
@@ -187,12 +288,23 @@ def resolve_open_trades(
         else:
             pnl_pct = 0.0
 
-        updated_rows.at[idx, "outcome"] = outcome
-        updated_rows.at[idx, "exit_price"] = exit_price
-        updated_rows.at[idx, "pnl_pct"] = pnl_pct
+        # P&L em $ usando saldo de referência e risco de 10%
+        ref_bal    = get_reference_balance()
+        risk_amt   = ref_bal * 0.10           # 10% do saldo = risco por trade
+        sl_dist    = abs(entry_price - float(trade["sl_price"])) / entry_price
+        contracts  = (risk_amt / sl_dist / entry_price) if sl_dist > 0 else 0.001
+        taker_fee  = 0.0004
+        fee_usd    = round((contracts * entry_price + contracts * exit_price) * taker_fee, 4)
+        pnl_usd    = round(pnl_pct / 100 * contracts * entry_price - fee_usd, 4)
+
+        updated_rows.at[idx, "outcome"]     = outcome
+        updated_rows.at[idx, "exit_price"]  = exit_price
+        updated_rows.at[idx, "pnl_pct"]     = pnl_pct
+        updated_rows.at[idx, "pnl_usd"]     = pnl_usd
+        updated_rows.at[idx, "fee_usd"]     = fee_usd
         updated_rows.at[idx, "resolved_at"] = datetime.now(timezone.utc).isoformat()
         resolved += 1
-        log.info(f"Trade resolvido: {signal} @ {entry_price:.2f} → {outcome} ({pnl_pct:+.2f}%)")
+        log.info(f"Trade resolvido: {signal} @ {entry_price:.2f} → {outcome} ({pnl_pct:+.2f}% / {pnl_usd:+.2f} USD)")
 
     if resolved > 0:
         updated_rows.to_csv(JOURNAL_PATH, index=False)

@@ -18,6 +18,21 @@ import logging
 log = logging.getLogger(__name__)
 
 
+def calc_trade_cost(
+    entry_price: float,
+    exit_price: float,
+    contracts: float,
+    taker_fee: float = 0.0004,
+) -> float:
+    """
+    Custo total da operação (entrada + saída) em USDT.
+    taker_fee: 0.04% por lado = 0.08% round-trip na Binance Futures.
+    """
+    notional_entry = contracts * entry_price
+    notional_exit  = contracts * exit_price
+    return (notional_entry + notional_exit) * taker_fee
+
+
 def size_by_fixed_risk(
     equity: float,
     entry_price: float,

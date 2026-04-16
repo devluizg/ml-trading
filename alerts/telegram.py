@@ -103,22 +103,51 @@ class TelegramAlerter:
         except Exception:
             return []
 
+    def set_balance_callback(self, fn) -> None:
+        """fn(amount: float) → atualiza saldo de referência."""
+        self._balance_callback = fn
+
     def _start_command_listener(self) -> None:
-        """Thread em background que escuta comandos /status do Telegram."""
+        """Thread em background que escuta comandos do Telegram."""
+        self._balance_callback = None
+
         def listen():
             while True:
                 try:
                     updates = self._fetch_updates()
                     for upd in updates:
                         self._last_update_id = upd["update_id"]
-                        msg = upd.get("message", {})
-                        text = msg.get("text", "").strip().lower()
-                        if text in ("/status", "/status@" + self.token[:8]):
-                            if self._status_callback:
-                                reply = self._status_callback()
-                            else:
-                                reply = "⏳ Bot iniciando, tente em alguns segundos."
+                        msg  = upd.get("message", {})
+                        text = msg.get("text", "").strip()
+
+                        cmd = text.lower().split()[0] if text else ""
+
+                        if cmd == "/status":
+                            reply = self._status_callback() if self._status_callback else "⏳ Iniciando..."
                             self._msg(reply)
+
+                        elif cmd == "/mensal":
+                            from journal.trade_journal import monthly_summary, all_months_summary
+                            parts = text.split()
+                            month = parts[1] if len(parts) > 1 else None
+                            reply = monthly_summary(month) if month else all_months_summary()
+                            self._msg(reply)
+
+                        elif cmd == "/saldo":
+                            parts = text.split()
+                            if len(parts) < 2:
+                                self._msg("Uso: /saldo 50\nInforma o saldo atual da sua conta.")
+                            else:
+                                try:
+                                    amount = float(parts[1].replace(",", "."))
+                                    from journal.trade_journal import set_reference_balance
+                                    set_reference_balance(amount)
+                                    if self._balance_callback:
+                                        self._balance_callback(amount)
+                                    self._msg(f"✅ Saldo de referência atualizado: <b>${amount:.2f}</b>\nP&amp;L mensal será calculado a partir deste valor.")
+                                except ValueError:
+                                    self._msg("❌ Valor inválido. Use: /saldo 50")
+
                 except Exception as e:
                     log.debug(f"Command listener error: {e}")
                     time.sleep(5)
