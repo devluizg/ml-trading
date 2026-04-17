@@ -37,7 +37,7 @@ from sklearn.metrics import classification_report
 
 log = logging.getLogger(__name__)
 
-MIN_TRADES      = 30      # mínimo de trades resolvidos para treinar
+MIN_TRADES      = 20      # mínimo de trades resolvidos para treinar
 META_MODEL_PATH = Path("models/meta_labeler.joblib")
 WIN_THRESHOLD   = 0.55    # P(WIN) mínimo para confirmar o sinal
 

@@ -107,9 +107,14 @@ class TelegramAlerter:
         """fn(amount: float) → atualiza saldo de referência."""
         self._balance_callback = fn
 
+    def set_aprendizado_callback(self, fn) -> None:
+        """fn() → str com status do meta-labeler."""
+        self._aprendizado_callback = fn
+
     def _start_command_listener(self) -> None:
         """Thread em background que escuta comandos do Telegram."""
         self._balance_callback = None
+        self._aprendizado_callback = None
 
         def listen():
             while True:
@@ -147,6 +152,10 @@ class TelegramAlerter:
                                     self._msg(f"✅ Saldo de referência atualizado: <b>${amount:.2f}</b>\nP&amp;L mensal será calculado a partir deste valor.")
                                 except ValueError:
                                     self._msg("❌ Valor inválido. Use: /saldo 50")
+
+                        elif cmd == "/aprendizado":
+                            reply = self._aprendizado_callback() if self._aprendizado_callback else "⏳ Aguardando dados..."
+                            self._msg(reply)
 
                 except Exception as e:
                     log.debug(f"Command listener error: {e}")
@@ -199,6 +208,29 @@ class TelegramAlerter:
             f"📊 <b>Resumo do dia</b>\n"
             f"Sinais emitidos: {n_signals}\n"
             f"Equity atual   : {equity:.2f} USDT"
+        )
+
+    def meta_labeler_update(
+        self,
+        symbol: str,
+        n_trades: int,
+        win_rate: float,
+        threshold: float,
+        first_activation: bool = False,
+    ) -> None:
+        """Alerta quando meta-labeler ativa ou melhora."""
+        if first_activation:
+            header = f"🧠 <b>Meta-labeler ATIVADO — {symbol}</b>"
+            detail = "O bot agora aprende com suas próprias operações e filtra sinais ruins."
+        else:
+            header = f"🧠 <b>Meta-labeler atualizado — {symbol}</b>"
+            detail = "Modelo de aprendizado re-treinado com novos trades."
+        self._msg(
+            f"{header}\n"
+            f"Trades analisados : {n_trades}\n"
+            f"Win rate base     : {win_rate*100:.1f}%\n"
+            f"Filtro P(WIN) ≥   : {threshold*100:.0f}%\n"
+            f"{detail}"
         )
 
     def hourly_status(

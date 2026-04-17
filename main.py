@@ -193,12 +193,35 @@ def run_bot(config: dict, dry_run: bool = True, alerter: TelegramAlerter = None)
 
     # 4b. Carrega / re-treina meta-labeler quando há novos trades resolvidos
     meta_labeler = load_meta_labeler()
+    _was_active  = meta_labeler.is_active
+    _prev_trades = meta_labeler.n_trades
     if resolved > 0 or not meta_labeler.is_active:
         training_data = load_meta_training_data()
         if not training_data.empty:
-            meta_labeler.fit(training_data)
+            trained = meta_labeler.fit(training_data)
+            if trained and alerter:
+                from journal.trade_journal import load_journal
+                _jrn = load_journal()
+                _resolved_jrn = _jrn[_jrn["outcome"].isin(["WIN", "LOSS", "EXPIRED"])]
+                _wr = (_resolved_jrn["outcome"] == "WIN").mean() if not _resolved_jrn.empty else 0.0
+                _first = not _was_active
+                _improved = (not _first) and (meta_labeler.n_trades >= _prev_trades + 10)
+                if _first or _improved:
+                    alerter.meta_labeler_update(
+                        symbol=symbol,
+                        n_trades=meta_labeler.n_trades,
+                        win_rate=_wr,
+                        threshold=meta_labeler.win_threshold,
+                        first_activation=_first,
+                    )
     if meta_labeler.is_active:
         log.info(f"Meta-labeler ativo — treinado com {meta_labeler.n_trades} trades")
+
+    _meta_state = {
+        "meta_trades": meta_labeler.n_trades,
+        "meta_active": meta_labeler.is_active,
+        "meta_threshold": meta_labeler.win_threshold,
+    }
 
     # 5. Features de Futuros (só na conta real — OI bloqueado no testnet)
     futures_feat = None
@@ -320,7 +343,7 @@ def run_bot(config: dict, dry_run: bool = True, alerter: TelegramAlerter = None)
         return {
             "p_long": proba.get(1, 0), "p_short": proba.get(-1, 0),
             "p_neutro": proba.get(0, 0), "last_signal": sig_label_display,
-            "equity": equity, "price": current_price,
+            "equity": equity, "price": current_price, **_meta_state,
         }
 
     # 13. Verifica posição aberta
@@ -348,7 +371,7 @@ def run_bot(config: dict, dry_run: bool = True, alerter: TelegramAlerter = None)
         return {
             "p_long": proba.get(1, 0), "p_short": proba.get(-1, 0),
             "p_neutro": proba.get(0, 0), "last_signal": sig_label_display,
-            "equity": equity, "price": current_price,
+            "equity": equity, "price": current_price, **_meta_state,
         }
 
     # 15. Executa ordem
@@ -373,7 +396,7 @@ def run_bot(config: dict, dry_run: bool = True, alerter: TelegramAlerter = None)
     return {
         "p_long": proba.get(1, 0), "p_short": proba.get(-1, 0),
         "p_neutro": proba.get(0, 0), "last_signal": sig_label_display,
-        "equity": equity, "price": current_price,
+        "equity": equity, "price": current_price, **_meta_state,
     }
 
 
@@ -424,6 +447,7 @@ def run_loop(config: dict, dry_run: bool, alerter: TelegramAlerter):
         "p_long": 0.0, "p_short": 0.0, "p_neutro": 1.0,
         "last_signal": "—", "equity": 0.0, "price": 0.0,
         "cycles": 0, "last_status_hour": -1,
+        "meta_trades": 0, "meta_active": False, "meta_threshold": 0.55,
     }
 
     if alerter:
@@ -444,6 +468,28 @@ def run_loop(config: dict, dry_run: bool, alerter: TelegramAlerter):
                 f"Ciclos hoje  : {s['cycles']}"
             )
         alerter.set_status_callback(_status_reply)
+
+        def _aprendizado_reply():
+            s = _state
+            from model.meta_labeler import MIN_TRADES
+            if not s["meta_active"]:
+                remaining = max(0, MIN_TRADES - s["meta_trades"])
+                return (
+                    f"🧠 <b>Aprendizado — {symbol} {timeframe}</b>\n"
+                    f"Status: <b>inativo</b> — aguardando trades\n"
+                    f"Trades resolvidos: {s['meta_trades']}/{MIN_TRADES}\n"
+                    f"Faltam {remaining} trades para ativar o filtro inteligente.\n\n"
+                    f"O bot opera normalmente enquanto aprende."
+                )
+            return (
+                f"🧠 <b>Aprendizado — {symbol} {timeframe}</b>\n"
+                f"Status: <b>ATIVO</b> ✅\n"
+                f"Trades analisados : {s['meta_trades']}\n"
+                f"Filtro P(WIN) ≥   : {s['meta_threshold']*100:.0f}%\n\n"
+                f"O bot filtra sinais com baixa probabilidade de vitória\n"
+                f"com base nas suas operações anteriores."
+            )
+        alerter.set_aprendizado_callback(_aprendizado_reply)
 
     iteration = 0
     while True:
