@@ -32,9 +32,14 @@ def load_history(symbol: str, timeframe: str) -> pd.DataFrame:
     path = _parquet_path(symbol, timeframe)
     if not path.exists():
         return pd.DataFrame()
-    df = pd.read_parquet(path)
-    df.index = pd.to_datetime(df.index, utc=True)
-    return df
+    try:
+        df = pd.read_parquet(path)
+        df.index = pd.to_datetime(df.index, utc=True)
+        return df
+    except Exception:
+        # Arquivo corrompido — remove para forçar novo download
+        path.unlink(missing_ok=True)
+        return pd.DataFrame()
 
 
 def save_history(df: pd.DataFrame, symbol: str, timeframe: str) -> None:
