@@ -254,11 +254,9 @@ def resolve_open_trades(
         return 0
 
     resolved = 0
-    updated_rows = journal.copy()
-    # Garante dtype object nas colunas de texto para permitir .at[] com strings
-    for _col in ["outcome", "resolved_at"]:
-        if _col in updated_rows.columns:
-            updated_rows[_col] = updated_rows[_col].astype(object)
+    # Trabalha com lista de dicts para evitar problemas de dtype no pandas 2.x
+    rows = journal.to_dict("records")
+    rows_by_idx = {i: row for i, row in enumerate(rows)}
 
     for idx, trade in open_trades.iterrows():
         entry_time = pd.to_datetime(trade["timestamp"], utc=True)
@@ -302,26 +300,27 @@ def resolve_open_trades(
         else:
             pnl_pct = 0.0
 
-        # P&L em $ usando saldo de referência e risco de 10%
-        ref_bal    = get_reference_balance()
-        risk_amt   = ref_bal * 0.10           # 10% do saldo = risco por trade
-        sl_dist    = abs(entry_price - float(trade["sl_price"])) / entry_price
-        contracts  = (risk_amt / sl_dist / entry_price) if sl_dist > 0 else 0.001
-        taker_fee  = 0.0004
-        fee_usd    = round((contracts * entry_price + contracts * exit_price) * taker_fee, 4)
-        pnl_usd    = round(pnl_pct / 100 * contracts * entry_price - fee_usd, 4)
+        ref_bal   = get_reference_balance()
+        risk_amt  = ref_bal * 0.10
+        sl_dist   = abs(entry_price - float(trade["sl_price"])) / entry_price
+        contracts = (risk_amt / sl_dist / entry_price) if sl_dist > 0 else 0.001
+        taker_fee = 0.0004
+        fee_usd   = round((contracts * entry_price + contracts * exit_price) * taker_fee, 4)
+        pnl_usd   = round(pnl_pct / 100 * contracts * entry_price - fee_usd, 4)
 
-        updated_rows.at[idx, "outcome"]     = outcome
-        updated_rows.at[idx, "exit_price"]  = exit_price
-        updated_rows.at[idx, "pnl_pct"]     = pnl_pct
-        updated_rows.at[idx, "pnl_usd"]     = pnl_usd
-        updated_rows.at[idx, "fee_usd"]     = fee_usd
-        updated_rows.at[idx, "resolved_at"] = datetime.now(timezone.utc).isoformat()
+        rows_by_idx[idx]["outcome"]     = outcome
+        rows_by_idx[idx]["exit_price"]  = exit_price
+        rows_by_idx[idx]["pnl_pct"]     = pnl_pct
+        rows_by_idx[idx]["pnl_usd"]     = pnl_usd
+        rows_by_idx[idx]["fee_usd"]     = fee_usd
+        rows_by_idx[idx]["resolved_at"] = datetime.now(timezone.utc).isoformat()
         resolved += 1
         log.info(f"Trade resolvido: {signal} @ {entry_price:.2f} → {outcome} ({pnl_pct:+.2f}% / {pnl_usd:+.2f} USD)")
 
     if resolved > 0:
-        updated_rows.to_csv(JOURNAL_PATH, index=False)
+        pd.DataFrame(list(rows_by_idx.values()), columns=_COLUMNS).to_csv(
+            JOURNAL_PATH, index=False
+        )
 
     return resolved
 
