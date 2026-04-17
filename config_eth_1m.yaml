@@ -1,0 +1,38 @@
+alerts:
+  telegram_chat_id: '1139880837'
+  telegram_token: 8780685119:AAFRBMwXlF8GzG7uKSRI-GZUHM-Wazu5mng
+barriers:
+  atr_multiplier_pt: 2.0
+  atr_multiplier_sl: 1.0
+  pt: 0.015
+  sl: 0.015
+  use_dynamic: false
+  vertical_bars: 30
+features:
+  frac_diff_d: 0.4
+  use_futures_features: false
+initial_candles: 1000
+live_min_sharpe: 0.5
+logging:
+  file: logs/bot_eth_1m.log
+  level: INFO
+model:
+  cv_folds: 5
+  embargo_pct: 0.01
+  max_depth: 6
+  n_estimators: 200
+  prob_gap: 0.15
+  prob_threshold: 0.45
+  train_window: 10000
+  type: rf
+risk:
+  kelly_fraction: 0.25
+  max_daily_loss_pct: 0.15
+  max_drawdown_pct: 0.40
+  order_amount: 0.001
+  risk_per_trade_pct: 0.10
+  taker_fee: 0.0004
+  reference_balance: 50.0
+  use_kelly: false
+symbol: ETH/USDT
+timeframe: 1m

@@ -116,7 +116,7 @@ def monthly_report(pnl: pd.Series, symbol: str) -> None:
     print(f"\n💡 Anti-martingale: risco cai para 5% após {MAX_LOSSES} perdas seguidas no mês")
 
 
-def run(config_path: str) -> None:
+def run(config_path: str, max_candles: int = 0) -> None:
     config    = yaml.safe_load(open(config_path))
     symbol    = config["symbol"]
     timeframe = config["timeframe"]
@@ -126,6 +126,10 @@ def run(config_path: str) -> None:
     if df.empty:
         print("Sem dados.")
         return
+
+    if max_candles and len(df) > max_candles:
+        df = df.iloc[-max_candles:]
+        print(f"Limitado a últimos {max_candles:,} candles")
 
     print(f"Período: {df.index[0].date()} → {df.index[-1].date()} ({len(df):,} candles)")
     print("Rodando backtest walk-forward...")
@@ -138,13 +142,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--both", action="store_true")
+    parser.add_argument("--max-candles", type=int, default=0, help="Limita candles para backtest rápido")
     args = parser.parse_args()
 
+    mc = args.max_candles
     if args.both:
-        run("config.yaml")
-        run("config_eth.yaml")
+        run("config.yaml", mc)
+        run("config_eth.yaml", mc)
     else:
-        run(args.config)
+        run(args.config, mc)
 
 
 if __name__ == "__main__":

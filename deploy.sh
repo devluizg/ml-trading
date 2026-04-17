@@ -36,48 +36,58 @@ mkdir -p "$PROJECT_DIR/models"
 mkdir -p "$PROJECT_DIR/data/history"
 mkdir -p "$PROJECT_DIR/journal"
 
-# 5. Baixa histórico BTC 15m e ETH 5m
+# 5. Baixa históricos em paralelo
 echo ""
-echo "Baixando histórico BTC/USDT 15m..."
+echo "Baixando históricos..."
 cd "$PROJECT_DIR"
-"$PYTHON" data/download_history.py --symbol BTC/USDT --timeframe 15m --days 730
+"$PYTHON" data/download_history.py --symbol BTC/USDT --timeframe 15m --days 730 &
+"$PYTHON" data/download_history.py --symbol ETH/USDT --timeframe 5m  --days 730 &
+"$PYTHON" data/download_history.py --symbol BTC/USDT --timeframe 1m  --days 365 &
+"$PYTHON" data/download_history.py --symbol ETH/USDT --timeframe 1m  --days 365 &
+wait
+echo "Históricos baixados."
 
-echo ""
-echo "Baixando histórico ETH/USDT 5m..."
-"$PYTHON" data/download_history.py --symbol ETH/USDT --timeframe 5m --days 730
-
-# 6. Instala serviço BTC (ml_trade)
+# 6. Instala os 4 serviços systemd
 echo ""
 echo "Instalando serviços systemd..."
-cp "$PROJECT_DIR/ml_trade.service" /etc/systemd/system/ml_trade.service
-sed -i "s|User=luiz|User=$SERVICE_USER|g"            /etc/systemd/system/ml_trade.service
-sed -i "s|/home/luiz/ml_trade|$PROJECT_DIR|g"        /etc/systemd/system/ml_trade.service
-sed -i "s|/usr/bin/python3|$PYTHON|g"               /etc/systemd/system/ml_trade.service
 
-# 7. Instala serviço ETH (ml_trade_eth)
-cp "$PROJECT_DIR/ml_trade_eth.service" /etc/systemd/system/ml_trade_eth.service
-sed -i "s|User=luiz|User=$SERVICE_USER|g"            /etc/systemd/system/ml_trade_eth.service
-sed -i "s|/home/luiz/ml_trade|$PROJECT_DIR|g"        /etc/systemd/system/ml_trade_eth.service
-sed -i "s|/usr/bin/python3|$PYTHON|g"               /etc/systemd/system/ml_trade_eth.service
+install_service() {
+    local src="$1" dst="$2"
+    cp "$PROJECT_DIR/$src" "/etc/systemd/system/$dst"
+    sed -i "s|User=luiz|User=$SERVICE_USER|g"     "/etc/systemd/system/$dst"
+    sed -i "s|/home/luiz/ml_trade|$PROJECT_DIR|g" "/etc/systemd/system/$dst"
+    sed -i "s|/usr/bin/python3|$PYTHON|g"         "/etc/systemd/system/$dst"
+}
 
-# 8. Habilita e inicia os serviços
+install_service "ml_trade.service"        "ml_trade.service"
+install_service "ml_trade_eth.service"    "ml_trade_eth.service"
+install_service "ml_trade_btc_1m.service" "ml_trade_btc_1m.service"
+install_service "ml_trade_eth_1m.service" "ml_trade_eth_1m.service"
+
+# 7. Habilita e inicia os serviços
 systemctl daemon-reload
 
-systemctl enable ml_trade
-systemctl enable ml_trade_eth
+for svc in ml_trade ml_trade_eth ml_trade_btc_1m ml_trade_eth_1m; do
+    systemctl enable "$svc"
+done
 
 systemctl start ml_trade
-sleep 3
+sleep 5
 systemctl start ml_trade_eth
+sleep 5
+systemctl start ml_trade_btc_1m
+sleep 5
+systemctl start ml_trade_eth_1m
 
 echo ""
-echo "=== Deploy concluído ==="
+echo "=== Deploy concluído — 4 bots ativos ==="
 echo ""
-systemctl status ml_trade     --no-pager | head -5
-echo ""
-systemctl status ml_trade_eth --no-pager | head -5
-echo ""
-echo "Logs BTC: journalctl -u ml_trade -f"
-echo "Logs ETH: journalctl -u ml_trade_eth -f"
-echo "      ou: tail -f $PROJECT_DIR/logs/bot.log"
-echo "      ou: tail -f $PROJECT_DIR/logs/bot_eth.log"
+for svc in ml_trade ml_trade_eth ml_trade_btc_1m ml_trade_eth_1m; do
+    systemctl status "$svc" --no-pager | head -3
+    echo ""
+done
+echo "Logs:"
+echo "  tail -f $PROJECT_DIR/logs/bot.log"
+echo "  tail -f $PROJECT_DIR/logs/bot_eth.log"
+echo "  tail -f $PROJECT_DIR/logs/bot_btc_1m.log"
+echo "  tail -f $PROJECT_DIR/logs/bot_eth_1m.log"

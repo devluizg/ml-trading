@@ -1,37 +1,41 @@
 #!/bin/bash
-# entrypoint.sh — inicializa os dois bots no container
+# entrypoint.sh — inicia os 4 bots no container
 set -e
 
-echo "=== ml_trade bots ==="
-echo "BTC/USDT 15m + ETH/USDT 5m | dry_run=True"
+echo "=== ml_trade — 4 bots ==="
+echo "BTC 15m | BTC 1m | ETH 5m | ETH 1m"
 echo ""
 
-# --- BTC/USDT 15m ---
-if [ ! -f "data/history/BTC_USDT_15m.parquet" ]; then
-    echo "Baixando histórico BTC/USDT 15m (2 anos)..."
-    python3 data/download_history.py --symbol BTC/USDT --timeframe 15m --days 730
-fi
+# Baixa históricos em paralelo (só se não existirem)
+download_if_needed() {
+    local symbol=$1 tf=$2 file=$3
+    if [ ! -f "data/history/$file" ]; then
+        echo "Baixando $symbol $tf..."
+        python3 data/download_history.py --symbol "$symbol" --timeframe "$tf" --days 365
+    else
+        echo "Histórico $symbol $tf já existe."
+    fi
+}
 
-# --- ETH/USDT 5m ---
-if [ ! -f "data/history/ETH_USDT_5m.parquet" ]; then
-    echo "Baixando histórico ETH/USDT 5m (2 anos)..."
-    python3 data/download_history.py --symbol ETH/USDT --timeframe 5m --days 730
-fi
-
-echo ""
-echo "Iniciando bot BTC..."
-python3 main.py --loop &
-BTC_PID=$!
-
-echo "Iniciando bot ETH..."
-python3 main.py --loop --config config_eth.yaml &
-ETH_PID=$!
+download_if_needed "BTC/USDT" "15m" "BTC_USDT_15m.parquet" &
+download_if_needed "ETH/USDT" "5m"  "ETH_USDT_5m.parquet"  &
+download_if_needed "BTC/USDT" "1m"  "BTC_USDT_1m.parquet"  &
+download_if_needed "ETH/USDT" "1m"  "ETH_USDT_1m.parquet"  &
+wait
 
 echo ""
-echo "Bots ativos — BTC PID=$BTC_PID | ETH PID=$ETH_PID"
-echo "Health check: http://localhost:8080/health"
+echo "Iniciando bots..."
 
-# Fica vivo enquanto algum bot estiver rodando
-wait -n $BTC_PID $ETH_PID
+python3 main.py --loop --config config.yaml         &
+sleep 5
+python3 main.py --loop --config config_btc_1m.yaml  &
+sleep 5
+python3 main.py --loop --config config_eth.yaml     &
+sleep 5
+python3 main.py --loop --config config_eth_1m.yaml  &
+
+echo "4 bots ativos. Health check: http://localhost:8080/health"
+
+wait -n
 echo "Um bot encerrou — reiniciando container..."
 exit 1
