@@ -32,5 +32,6 @@ risk:
   risk_per_trade_pct: 0.10
   taker_fee: 0.0004
   use_kelly: false
+  reference_balance: 50.0
 symbol: BTC/USDT
 timeframe: 15m

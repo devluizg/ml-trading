@@ -33,5 +33,6 @@ risk:
   risk_per_trade_pct: 0.10
   use_kelly: false
   taker_fee: 0.0004
+  reference_balance: 50.0
 symbol: ETH/USDT
 timeframe: 5m

@@ -196,11 +196,15 @@ def log_signal(
 
 
 def load_journal() -> pd.DataFrame:
-    """Carrega o journal como DataFrame."""
+    """Carrega o journal como DataFrame, tolerante a colunas faltando."""
     if not JOURNAL_PATH.exists():
         return pd.DataFrame(columns=_COLUMNS)
-    df = pd.read_csv(JOURNAL_PATH, parse_dates=["timestamp"])
-    return df
+    df = pd.read_csv(JOURNAL_PATH, parse_dates=["timestamp"], on_bad_lines="skip")
+    # Garante todas as colunas esperadas
+    for col in _COLUMNS:
+        if col not in df.columns:
+            df[col] = ""
+    return df[_COLUMNS]
 
 
 def resolve_open_trades(

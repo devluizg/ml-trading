@@ -330,15 +330,18 @@ def run_bot(config: dict, dry_run: bool = True, alerter: TelegramAlerter = None)
         return
 
     # 14. Dimensionamento de posição
+    # Usa reference_balance ($50) como base — opera como conta pequena independente do saldo testnet
+    sizing_equity = risk_cfg.get("reference_balance", equity)
     prob_win = proba.get(1, 0) if signal == LONG else proba.get(-1, 0)
     amount = get_position_size(
         config=risk_cfg,
-        equity=equity,
+        equity=sizing_equity,
         entry_price=current_price,
         sl_price=sl_price,
         tp_price=tp_price,
         prob_win=prob_win,
     )
+    log.info(f"Sizing: ref=${sizing_equity:.2f}, risco={risk_cfg.get('risk_per_trade_pct',0.1)*100:.0f}%, contratos={amount}")
 
     if amount == 0:
         log.info("Kelly negativo — operação não recomendada")
