@@ -1,5 +1,5 @@
 #!/bin/bash
-# entrypoint.sh — inicia os 4 bots no container
+# entrypoint.sh — inicia os 4 bots no container com restart individual
 set -e
 
 echo "=== ml_trade — 4 bots ==="
@@ -26,16 +26,27 @@ wait
 echo ""
 echo "Iniciando bots..."
 
-python3 main.py --loop --config config.yaml         &
+# Cada bot roda em loop próprio — crash reinicia só aquele bot, não o container
+run_bot() {
+    local config=$1
+    local name=$2
+    while true; do
+        echo "[supervisor] Iniciando $name..."
+        python3 main.py --loop --config "$config" || true
+        echo "[supervisor] $name encerrou — aguardando 30s para reiniciar..."
+        sleep 30
+    done
+}
+
+run_bot "config.yaml"        "BTC/USDT 15m" &
 sleep 5
-python3 main.py --loop --config config_btc_1m.yaml  &
+run_bot "config_btc_1m.yaml" "BTC/USDT 1m"  &
 sleep 5
-python3 main.py --loop --config config_eth.yaml     &
+run_bot "config_eth.yaml"    "ETH/USDT 5m"  &
 sleep 5
-python3 main.py --loop --config config_eth_1m.yaml  &
+run_bot "config_eth_1m.yaml" "ETH/USDT 1m"  &
 
 echo "4 bots ativos. Health check: http://localhost:8080/health"
 
-wait -n
-echo "Um bot encerrou — reiniciando container..."
-exit 1
+# Mantém o container vivo — nunca sai
+wait
