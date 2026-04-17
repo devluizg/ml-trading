@@ -154,11 +154,15 @@ class TelegramAlerter:
                                     self._msg("❌ Valor inválido. Use: /saldo 50")
 
                         elif cmd == "/aprendizado":
-                            reply = self._aprendizado_callback() if self._aprendizado_callback else "⏳ Aguardando dados..."
-                            self._msg(reply)
+                            try:
+                                reply = self._aprendizado_callback() if self._aprendizado_callback else "⏳ Aguardando dados..."
+                                self._msg(reply)
+                            except Exception as e:
+                                log.warning(f"Erro /aprendizado: {e}", exc_info=True)
+                                self._msg(f"⚠️ Erro ao processar /aprendizado: {e}")
 
                 except Exception as e:
-                    log.debug(f"Command listener error: {e}")
+                    log.warning(f"Command listener error: {e}")
                     time.sleep(5)
 
         t = threading.Thread(target=listen, daemon=True)
