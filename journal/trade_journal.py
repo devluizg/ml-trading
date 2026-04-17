@@ -199,14 +199,15 @@ def load_journal() -> pd.DataFrame:
     """Carrega o journal como DataFrame, tolerante a colunas faltando."""
     if not JOURNAL_PATH.exists():
         return pd.DataFrame(columns=_COLUMNS)
-    df = pd.read_csv(JOURNAL_PATH, parse_dates=["timestamp"], on_bad_lines="skip")
+    df = pd.read_csv(JOURNAL_PATH, on_bad_lines="skip")
     # Garante todas as colunas esperadas
     for col in _COLUMNS:
         if col not in df.columns:
             df[col] = ""
-    # Colunas de texto: pandas lê células vazias como NaN (float64);
-    # forçar object evita "Invalid value for dtype float64" ao gravar strings
-    for col in ["outcome", "exit_price", "resolved_at", "signal", "symbol", "timeframe"]:
+    # Colunas de texto puro: pandas lê células vazias como NaN (float64);
+    # forçar object evita erros ao gravar strings nessas colunas.
+    # NÃO incluir colunas numéricas (exit_price, pnl_pct, pnl_usd, fee_usd).
+    for col in ["outcome", "resolved_at", "signal", "symbol", "timeframe"]:
         if col in df.columns:
             df[col] = df[col].fillna("").astype(str)
     return df[_COLUMNS]
@@ -254,6 +255,10 @@ def resolve_open_trades(
 
     resolved = 0
     updated_rows = journal.copy()
+    # Garante dtype object nas colunas de texto para permitir .at[] com strings
+    for _col in ["outcome", "resolved_at"]:
+        if _col in updated_rows.columns:
+            updated_rows[_col] = updated_rows[_col].astype(object)
 
     for idx, trade in open_trades.iterrows():
         entry_time = pd.to_datetime(trade["timestamp"], utc=True)
