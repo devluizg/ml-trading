@@ -204,6 +204,11 @@ def load_journal() -> pd.DataFrame:
     for col in _COLUMNS:
         if col not in df.columns:
             df[col] = ""
+    # Colunas de texto: pandas lê células vazias como NaN (float64);
+    # forçar object evita "Invalid value for dtype float64" ao gravar strings
+    for col in ["outcome", "exit_price", "resolved_at", "signal", "symbol", "timeframe"]:
+        if col in df.columns:
+            df[col] = df[col].fillna("").astype(str)
     return df[_COLUMNS]
 
 
